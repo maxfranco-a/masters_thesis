@@ -1,0 +1,30 @@
+# for the performance of 2024 free agent signings from year 2023
+CREATE TABLE perf2024 AS
+SELECT m.Name,
+m.date, 
+       m.new_team,
+       m.former_team,
+       m.Age,
+       m.WAR3,
+       m.Yrs,
+       m.career_games,
+       m.stayed_same_team,
+       t.G,
+       t.PA,
+       t.HR,
+       t.R,
+       t.RBI,
+       t.SB,
+       t.`BB%`,
+       t.`K%`,
+       t.AVG,
+       t.OBP,
+       t.SLG,
+       t.GDP,
+       t.CS,
+       t.H,
+       t.OPS,
+       t.PlayerId,
+       t.MLBAMID
+FROM salaries2024 m
+LEFT JOIN trad_stats2023 t ON m.Name = t.NameASCII;

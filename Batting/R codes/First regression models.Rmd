@@ -1,0 +1,381 @@
+---
+title: "Thesis with R"
+author: "Thomas M Franco 1691997"
+date: "2024-05-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+df5 <- read_csv("df5.csv")
+View(df5)
+```
+
+```{r}
+target <- "AAV"
+features <- names(df5)[!names(df5) %in% c(target, "PlayerId", "Name")]
+```
+
+
+```{r}
+set.seed(1)  # For reproducibility
+library(caret)
+train_index <- createDataPartition(df5[[target]], p = 0.8, list = FALSE)
+train_data <- df5[train_index, ]
+test_data <- df5[-train_index, ]
+
+```
+LINEAR REGRESSION
+
+
+```{r}
+linear_model <- train(x = train_data[, features],
+                      y = train_data[[target]],
+                      method = "lm")
+```
+
+```{r}
+linear_y_pred <- predict(linear_model, newdata = test_data[, features])
+
+```
+
+
+```{r}
+library(Metrics)
+rmse <- rmse(test_data[[target]], linear_y_pred)
+mape <- mape(test_data[[target]], linear_y_pred)
+r_squared <- R2(test_data[[target]], linear_y_pred)
+summary(linear_model)
+```
+
+
+```{r}
+print(paste("Linear Regression RMSE:", rmse))
+print(paste("Linear Regression MAPE:", mape))
+print(paste("Linear Regression R^2:", r_squared))
+```
+The RMSE is telling us the average error in the predictions: we are failing by 4.79 on average. The MAPE tells us about the average percentage error, since 5M is not the same in a player's AAV of 200k than for a 40M player AAV : in our case we are failing by 103% on average. Finally the R^2 score is the Pearson's coefficient of predictions against reality: 1 would be a perfect model, while 0 is the worst possible scenario. We obtained 0.62. 
+
+```{r}
+results_df <- data.frame(test_data[, features])
+results_df$y_real <- test_data[[target]]
+results_df$y_pred <- as.integer(linear_y_pred)
+results_df$err <- results_df$y_real - results_df$y_pred
+results_df$percent_err <- results_df$err / results_df$y_real * 100
+print(results_df)
+```
+
+
+RIDGE REGRESSION
+
+```{r}
+#install.packages("glmnet")
+library(glmnet)
+
+```
+
+```{r}
+
+X_train <- as.matrix(train_data[, features])
+y_train <- train_data[[target]]
+X_test <- as.matrix(test_data[, features])
+
+
+```
+
+```{r}
+ridge_model <- glmnet(X_train, y_train, alpha = 0, lambda = 0.01)
+
+ridge_y_pred <- predict(ridge_model, newx = X_test)
+
+coef_summary <- coef(ridge_model)
+print(coef_summary)
+ridge_model
+```
+
+```{r}
+
+rmse_ridge <- sqrt(mean((ridge_y_pred - test_data[[target]])^2))
+mape_ridge <- mean(abs((test_data[[target]] - ridge_y_pred) / test_data[[target]])) * 100
+r_squared_ridge <- cor(test_data[[target]], ridge_y_pred)^2
+
+print(paste("RMSE (Ridge Regression):", rmse_ridge))
+print(paste("MAPE (Ridge Regression):", mape_ridge))
+print(paste("R^2 (Ridge Regression):", r_squared_ridge))
+
+```
+The model with higher penalization (lambda=1) shows a decrease in R^2 and higher RMSE AND MAPE scores. Altough a penalization of 0.1 shows a similar result to the LM model but with a lower deviation (MAPE) = 100.31. 
+
+When lambda = 0.01, we see an improvemnt in all metrics compared to LM model 
+R^2 = 0.63, RMSE 4.75 MAPE 101.22
+
+
+LASSO REGRESSION
+
+
+
+```{r}
+lasso_model <- glmnet(X_train, y_train, alpha = 1, lambda = 0.01)
+lasso_y_pred <- predict(lasso_model, newx = X_test)
+
+```
+
+
+```{r}
+
+rmse_lasso <- sqrt(mean((lasso_y_pred - test_data[[target]])^2))
+mape_lasso <- mean(abs((test_data[[target]] - lasso_y_pred) / test_data[[target]])) * 100
+r_squared_lasso <- cor(test_data[[target]], lasso_y_pred)^2
+
+coef_summary_lasso <- coef(lasso_model)
+print(coef_summary_lasso)
+
+```
+
+```{r}
+print(paste("RMSE (Lasso Regression):", rmse_lasso))
+print(paste("MAPE (Lasso Regression):", mape_lasso))
+print(paste("R^2 (Lasso Regression):", r_squared_lasso))
+
+```
+
+Similar to the results in Ridge, this model performs worse than the LM in every metric when using a higher penalization, it drops all the way to R^2= 0.45 MAPE = 109.22 RMSE = 5.88
+
+But with 0.1 and 0.01 as lambdas we get better performance in RMSE, MAPE AND R2
+
+
+
+XGBOOST
+
+```{r}
+#install.packages("xgboost")
+library(xgboost)
+
+```
+
+```{r}
+dtrain <- xgb.DMatrix(data = as.matrix(train_data[, features]), label = train_data[[target]])
+dtest <- xgb.DMatrix(data = as.matrix(test_data[, features]), label = test_data[[target]])
+
+```
+
+```{r}
+params <- list(
+  objective = "reg:squarederror",  # Regression task with squared error loss
+  eval_metric = "rmse"              # Evaluation metric: root mean squared error
+)
+
+```
+
+```{r}
+
+xgb_model <- xgboost(data = dtrain, params = params, nrounds = 100, verbose = FALSE)
+
+
+xgb_y_pred <- predict(xgb_model, newdata = dtest)
+
+```
+
+
+```{r}
+
+rmse_xgb <- sqrt(mean((xgb_y_pred - test_data[[target]])^2))
+mape_xgb <- mean(abs((test_data[[target]] - xgb_y_pred) / test_data[[target]])) * 100
+r_squared_xgb <- cor(test_data[[target]], xgb_y_pred)^2
+
+
+print(paste("RMSE (XGBoost Regression):", rmse_xgb))
+print(paste("MAPE (XGBoost Regression):", mape_xgb))
+print(paste("R^2 (XGBoost Regression):", r_squared_xgb))
+
+```
+While the data fits relatively worse in this model (r2=0.56), we have a significant decrease in deviation (MAPE = 89.81)
+
+K-FOLD CROSS VALIDATION
+```{r}
+k <- 10  
+set.seed(123)  
+folds <- sample(1:k, nrow(train_data), replace = TRUE)
+
+rmse_cv <- numeric(k)
+mape_cv <- numeric(k)
+r_squared_cv <- numeric(k)
+
+```
+
+```{r}
+for (i in 1:k) {
+  
+  fold_indices <- which(folds != i)
+  fold_train <- train_data[fold_indices, ]
+  fold_valid <- train_data[folds == i, ]
+  
+
+  linear_model_cv <- lm(formula = as.formula(paste(target, "~", paste(features, collapse = " + "))),
+                        data = fold_train)
+  
+ 
+  linear_y_pred_cv <- predict(linear_model_cv, newdata = fold_valid)
+  
+  
+  rmse_cv[i] <- sqrt(mean((linear_y_pred_cv - fold_valid[[target]])^2))
+  mape_cv[i] <- mean(abs((fold_valid[[target]] - linear_y_pred_cv) / fold_valid[[target]])) * 100
+  r_squared_cv[i] <- cor(fold_valid[[target]], linear_y_pred_cv)^2
+}
+
+print(paste("Cross-Validation RMSE:", mean(rmse_cv)))
+print(paste("Cross-Validation MAPE:", mean(mape_cv)))
+print(paste("Cross-Validation R^2:", mean(r_squared_cv)))
+
+```
+BEST FOLD 
+
+```{r}
+best_fold <- NULL
+best_features <- NULL
+best_r_squared <- -Inf
+best_mean_error <- Inf
+best_rmse <- Inf
+best_mape <- Inf
+
+for (i in 1:k) {
+  fold_indices <- which(folds != i)
+  fold_train <- train_data[fold_indices, ]
+  fold_valid <- train_data[folds == i, ]
+  
+  linear_model_cv <- lm(formula = as.formula(paste(target, "~", paste(features, collapse = " + "))),
+                        data = fold_train)
+  
+  linear_y_pred_cv <- predict(linear_model_cv, newdata = fold_valid)
+  
+  r_squared <- cor(fold_valid[[target]], linear_y_pred_cv)^2
+  
+  mean_error <- mean(abs(fold_valid[[target]] - linear_y_pred_cv))
+  
+  rmse <- sqrt(mean((fold_valid[[target]] - linear_y_pred_cv)^2))
+  
+  mape <- mean(abs((fold_valid[[target]] - linear_y_pred_cv) / fold_valid[[target]])) * 100
+
+  if (r_squared> best_r_squared) {
+    best_fold <- i
+    best_features <- features
+    best_r_squared <- r_squared
+    best_mean_error <- mean_error
+    best_rmse <- rmse
+    best_mape <- mape
+  }
+}
+
+print(paste("Best fold with best R^2:", best_fold))
+print(paste("Features with best R^2:", paste(best_features, collapse = ", ")))
+print(paste("Best R^2:", best_r_squared))
+print(paste("Mean Error for best fold:", best_mean_error))
+print(paste("RMSE for best fold:", best_rmse))
+print(paste("MAPE for best fold:", best_mape))
+
+```
+
+
+```{r}
+mean_errors <- numeric(k)
+
+for (i in 1:k) {
+  fold_indices <- which(folds != i)
+  fold_train <- train_data[fold_indices, ]
+  fold_valid <- train_data[folds == i, ]
+  
+  linear_model_cv <- lm(formula = as.formula(paste(target, "~", paste(features, collapse = " + "))),
+                        data = fold_train)
+  
+  linear_y_pred_cv <- predict(linear_model_cv, newdata = fold_valid)
+  
+  mean_errors[i] <- mean(abs(fold_valid[[target]] - linear_y_pred_cv))
+}
+
+plot(1:k, mean_errors, type = "b", xlab = "Fold", ylab = "Mean Error",
+     main = "Mean Errors vs. Folds", pch = 19)
+
+```
+
+```{r}
+mean_errors <- numeric(length(features))
+
+for (num_vars in 1:length(features)) {
+  subset_features <- features[1:num_vars]
+  
+  mean_errors_cv <- numeric(k)
+  
+  for (i in 1:k) {
+
+    fold_indices <- which(folds != i)
+    fold_train <- train_data[fold_indices, ]
+    fold_valid <- train_data[folds == i, ]
+    
+    linear_model_cv <- lm(formula = as.formula(paste(target, "~", paste(subset_features, collapse = " + "))),
+                          data = fold_train)
+    
+    linear_y_pred_cv <- predict(linear_model_cv, newdata = fold_valid)
+    
+    mean_errors_cv[i] <- mean(abs(fold_valid[[target]] - linear_y_pred_cv))
+  }
+  
+  mean_errors[num_vars] <- mean(mean_errors_cv)
+}
+
+plot(1:length(features), mean_errors, type = "b", xlab = "Number of Variables", ylab = "Mean Error",
+     main = "Mean Errors vs. Number of Variables", pch = 19)
+
+```
+after 19 variables we see that the model starts normalizing. 
+
+
+
+```{r}
+subset_features_21 <- features[1:19]
+print("Variables used in the model with 21 variables:")
+print(subset_features_21)
+```
+
+```{r}
+mean_errors <- numeric(length(features))
+r_squared_values <- numeric(length(features))
+
+for (num_vars in 1:length(features)) {
+  subset_features <- features[1:num_vars]
+  
+  mean_errors_cv <- numeric(k)
+  r_squared_cv <- numeric(k)
+  
+  for (i in 1:k) {
+    fold_indices <- which(folds != i)
+    fold_train <- train_data[fold_indices, ]
+    fold_valid <- train_data[folds == i, ]
+    
+    linear_model_cv <- lm(formula = as.formula(paste(target, "~", paste(subset_features, collapse = " + "))),
+                          data = fold_train)
+    
+    linear_y_pred_cv <- predict(linear_model_cv, newdata = fold_valid)
+    
+    mean_errors_cv[i] <- mean(abs(fold_valid[[target]] - linear_y_pred_cv))
+    r_squared_cv[i] <- cor(fold_valid[[target]], linear_y_pred_cv)^2
+  }
+  
+  mean_errors[num_vars] <- mean(mean_errors_cv)
+  r_squared_values[num_vars] <- mean(r_squared_cv)
+}
+
+par(mfrow = c(1, 2))  
+plot(1:length(features), mean_errors, type = "b", xlab = "Number of Variables", ylab = "Mean Error",
+     main = "Mean Errors vs. Number of Variables", pch = 19)
+plot(1:length(features), r_squared_values, type = "b", xlab = "Number of Variables", ylab = "R-squared",
+     main = "R-squared vs. Number of Variables", pch = 19)
+
+```
+
+
+
+
