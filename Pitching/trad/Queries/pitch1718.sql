@@ -1,0 +1,6 @@
+CREATE TABLE pitch_1718 AS
+SELECT * FROM pitchperf2017_2
+UNION ALL
+SELECT * FROM pitchperf2018_2;
+
+SELECT * FROM pitch_1718;
